@@ -1,0 +1,25 @@
+# Dependencias
+node_modules/
+
+# Entorno y credenciales (¡NUNCA subir a GitHub!)
+.env
+.env.local
+.env.*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log
+
+# Archivos temporales del sistema operativo
+.DS_Store
+Thumbs.db
+
+# Configuración de editores
+.idea/
+.vscode/
+
+# Reportes de tests
+coverage/

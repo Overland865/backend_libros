@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: biblioteca-eclesiastica-api
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_NAME
+        value: biblioteca_digital
+      - key: COLLECTION_NAME
+        value: libros_eclesiasticos
+      - key: MONGO_URI
+        sync: false
+      - key: API_KEY
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash

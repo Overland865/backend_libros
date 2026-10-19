@@ -1,0 +1,27 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "setup:db": "node scripts/setup-db.js",
+    "backup:db": "node scripts/backup-db.js",
+    "restore:db": "node scripts/restore-db.js",
+    "test": "node --test test/**/*.test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.6",
+    "express": "^5.2.1",
+    "mongodb": "^7.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
