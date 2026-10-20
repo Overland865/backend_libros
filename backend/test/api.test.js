@@ -1,14 +1,61 @@
 const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert');
 const http = require('node:http');
+const { adaptarLibro } = require('../src/libro_adapter');
 
 // Configuramos variables de entorno para pruebas antes de cargar el servidor
 process.env.PORT = '0'; // Puerto efímero aleatorio
 process.env.API_KEY = 'test-secret-token-123';
 process.env.NODE_ENV = 'test';
+process.env.DB_NAME = 'biblioteca_digital';
+process.env.MONGO_URI = 'mongodb://127.0.0.1:1';
+process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS = '100';
+delete process.env.COLLECTION_NAME;
 
 const app = require('../src/server');
 const { cerrar } = require('../src/db');
+
+describe('Adaptación de libros de biblioteca_digital.libros', () => {
+  test('mapea el esquema de catálogo al formato consumido por la app', () => {
+    const libro = adaptarLibro({
+      _id: 'libro-1',
+      titulo: 'Título',
+      autor: 'Autora',
+      isbn: '9780000000001',
+      editorial: 'Editorial',
+      anio_publicacion: 1924,
+      categorias: ['Historia', 'Religión'],
+      total_paginas: 120,
+      fecha_creacion: '2024-01-01T00:00:00.000Z',
+    });
+
+    assert.strictEqual(libro._id, 'libro-1');
+    assert.strictEqual(libro.isbn_o_codigo, '9780000000001');
+    assert.strictEqual(libro.tipo_libro, 'Historia, Religión');
+    assert.deepStrictEqual(libro.palabras_clave, ['Historia', 'Religión']);
+    assert.deepStrictEqual(libro.periodo, { anio_inicio: 1924, anio_fin: 1924 });
+    assert.strictEqual(libro.fecha_procesamiento, '2024-01-01T00:00:00.000Z');
+    assert.strictEqual(libro.iglesia, '');
+    assert.strictEqual(libro.total_paginas, 120);
+  });
+
+  test('conserva los campos normalizados de libros eclesiásticos', () => {
+    const libro = adaptarLibro({
+      _id: 'libro-2',
+      isbn_o_codigo: 'COD-2',
+      iglesia: 'Parroquia',
+      tipo_libro: 'Bautismos',
+      periodo: { anio_inicio: 1800, anio_fin: 1810 },
+      palabras_clave: ['bautismo'],
+    });
+
+    assert.strictEqual(libro.isbn_o_codigo, 'COD-2');
+    assert.strictEqual(libro.iglesia, 'Parroquia');
+    assert.strictEqual(libro.tipo_libro, 'Bautismos');
+    assert.deepStrictEqual(libro.periodo, { anio_inicio: 1800, anio_fin: 1810 });
+    assert.deepStrictEqual(libro.palabras_clave, ['bautismo']);
+  });
+});
 
 describe('API Backend - Tests Automatizados', () => {
   let server;
@@ -52,6 +99,8 @@ describe('API Backend - Tests Automatizados', () => {
     const body = await res.json();
     assert.strictEqual(body.servidor, 'ok');
     assert.ok('mongo' in body);
+    assert.strictEqual(body.base_datos, 'biblioteca_digital');
+    assert.strictEqual(body.coleccion, 'libros');
   });
 
   test('Seguridad: GET /api/libros sin token devuelve 401 Unauthorized', async () => {
@@ -71,12 +120,18 @@ describe('API Backend - Tests Automatizados', () => {
     assert.strictEqual(body.success, false);
   });
 
-  test('Seguridad: Header Authorization Bearer es aceptado con clave válida', async () => {
+  test('Security: Authorization Bearer accepts the valid key', async () => {
     const res = await fetch(`${baseUrl}/api/libros`, {
       headers: { 'Authorization': 'Bearer test-secret-token-123' }
     });
-    // Debe haber pasado la autenticación (no 401). Puede responder 200 si hay DB o 500 si no hay conexión
     assert.notStrictEqual(res.status, 401);
+  });
+
+  test('Security: Authorization without Bearer scheme returns 401', async () => {
+    const res = await fetch(`${baseUrl}/api/libros`, {
+      headers: { 'Authorization': 'test-secret-token-123' }
+    });
+    assert.strictEqual(res.status, 401);
   });
 
   test('Transcripción: POST /api/transcribir sin imagen devuelve 400', async () => {

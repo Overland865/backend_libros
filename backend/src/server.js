@@ -1,10 +1,12 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const { timingSafeEqual } = require('node:crypto');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const { connectDB, getCollection, estadoConexion, iniciarKeepalive, cerrar } = require('./db');
 const { transcribirConGemini } = require('./gemini');
+const { adaptarLibro } = require('./libro_adapter');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -45,9 +47,15 @@ function obtenerClavesConfiguradas() {
 
 let avisoAuthEmitido = false;
 
+function coincideClave(token, clave) {
+  const tokenBuffer = Buffer.from(token);
+  const claveBuffer = Buffer.from(clave);
+  return tokenBuffer.length === claveBuffer.length && timingSafeEqual(tokenBuffer, claveBuffer);
+}
+
 /**
- * Middleware de autenticación y autorización por API Key / Bearer token.
- * Exige credenciales válidas en X-API-Key o Authorization: Bearer <key>.
+ * Middleware de autenticacion por API key.
+ * Acepta X-API-Key o Authorization: Bearer <clave>.
  */
 function verificarAutenticacion(req, res, next) {
   const clavesValidas = obtenerClavesConfiguradas();
@@ -68,18 +76,16 @@ function verificarAutenticacion(req, res, next) {
   }
 
   const headerKey = req.headers['x-api-key'];
-  const authHeader = req.headers.authorization;
-  let bearerKey = null;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    bearerKey = authHeader.substring(7).trim();
-  }
+  const authHeader = req.headers.authorization || '';
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const bearerKey = bearerMatch ? bearerMatch[1].trim() : null;
 
   const token = (headerKey ? String(headerKey).trim() : bearerKey) || '';
 
-  if (!token || !clavesValidas.includes(token)) {
+  if (!token || !clavesValidas.some((clave) => coincideClave(token, clave))) {
     return res.status(401).json({
       success: false,
-      error: 'No autorizado. Proporcione una clave API válida en el header X-API-Key o Authorization: Bearer <key>.'
+      error: 'No autorizado. Proporcione una clave API valida en X-API-Key o Authorization: Bearer <API_KEY>.'
     });
   }
 
@@ -178,6 +184,11 @@ app.get('/api/libros', verificarAutenticacion, async (req, res) => {
         { autor: rx },
         { iglesia: rx },
         { isbn_o_codigo: rx },
+        { isbn: rx },
+        { subtitulo: rx },
+        { editorial: rx },
+        { categorias: rx },
+        { sinopsis: rx },
         { tipo_libro: rx },
         { palabras_clave: rx }
       ];
@@ -192,19 +203,25 @@ app.get('/api/libros', verificarAutenticacion, async (req, res) => {
     const libros = await collection
       .find(query)
       .project({ paginas: 0 }) // Excluir páginas para listado ligero
-      .sort({ fecha_procesamiento: -1 })
+      .sort({
+        fecha_procesamiento: -1,
+        fecha_actualizacion: -1,
+        fecha_creacion: -1,
+        _id: 1,
+      })
       .skip(skipNum)
       .limit(limitNum)
       .toArray();
+    const librosAdaptados = libros.map(adaptarLibro);
 
     res.json({
       success: true,
       total,
-      count: libros.length,
+      count: librosAdaptados.length,
       skip: skipNum,
       limit: limitNum,
-      hasMore: skipNum + libros.length < total,
-      data: libros
+      hasMore: skipNum + librosAdaptados.length < total,
+      data: librosAdaptados
     });
   } catch (error) {
     console.error('Error al consultar libros:', error);
@@ -219,14 +236,14 @@ app.get('/api/libros/:id', verificarAutenticacion, async (req, res) => {
     const id = String(req.params.id);
 
     const libro = await collection.findOne({
-      $or: [{ _id: id }, { isbn_o_codigo: id }]
+      $or: [{ _id: id }, { isbn_o_codigo: id }, { isbn: id }]
     });
 
     if (!libro) {
       return res.status(404).json({ success: false, message: 'Libro no encontrado' });
     }
 
-    res.json({ success: true, data: libro });
+    res.json({ success: true, data: adaptarLibro(libro) });
   } catch (error) {
     console.error('Error al obtener libro:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -294,7 +311,7 @@ app.delete('/api/libros/:id', verificarAutenticacion, async (req, res) => {
     const id = String(req.params.id);
 
     const result = await collection.deleteOne({
-      $or: [{ _id: id }, { isbn_o_codigo: id }]
+      $or: [{ _id: id }, { isbn_o_codigo: id }, { isbn: id }]
     });
 
     if (result.deletedCount === 0) {

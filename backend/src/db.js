@@ -4,7 +4,7 @@ require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const uri = (process.env.MONGO_URI || '').trim();
 const dbName = (process.env.DB_NAME || 'biblioteca_digital').trim();
-const collectionName = (process.env.COLLECTION_NAME || 'libros_eclesiasticos').trim();
+const collectionName = (process.env.COLLECTION_NAME || 'libros').trim();
 
 // El plan gratuito de Atlas (M0) PAUSA el cluster tras 5 minutos sin
 // actividad y tarda hasta ~30s en despertarlo. Con los valores por defecto
@@ -43,6 +43,16 @@ async function intentarConectar() {
     await nuevo.connect();
     const base = nuevo.db(dbName);
     await base.command({ ping: 1 }); // confirma que el cluster responde de verdad
+
+    const coleccionExiste = await base
+      .listCollections({ name: collectionName }, { nameOnly: true })
+      .hasNext();
+    if (!coleccionExiste) {
+      await nuevo.close();
+      throw new Error(
+        `La colección "${collectionName}" no existe en la base "${dbName}".`
+      );
+    }
 
     client = nuevo;
     db = base;
