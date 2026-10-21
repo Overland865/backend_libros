@@ -4,9 +4,11 @@ Tu tarea es transcribir con la mayor fidelidad y exactitud posible todo el texto
 Reglas obligatorias:
 1. Transcribe nombres propios, apellidos, fechas, lugares, parentescos y fórmulas religiosas exactamente como aparecen.
 2. Respeta las abreviaturas y ortografía histórica de la época.
-3. Conserva la división natural de párrafos y líneas.
-4. Si hay partes ilegibles o manchadas, indícalas como [ilegible].
-5. Devuelve ÚNICAMENTE el texto limpio transcrito. NO agregues introducciones, explicaciones, saludos ni bloques de código.`;
+3. Conserva fielmente tildes, diéresis, signos de puntuación y caracteres del español, en especial ñ y Ñ; no los sustituyas por n o N.
+4. Conserva la división natural de párrafos y líneas.
+5. Si hay partes ilegibles o manchadas, indícalas como [ilegible].
+6. No modernices la ortografía histórica ni corrijas nombres por contexto.
+7. Devuelve ÚNICAMENTE el texto limpio transcrito. NO agregues introducciones, explicaciones, saludos ni bloques de código.`;
 
 const MODELOS_DEFAULT = [
   'gemini-2.5-flash',

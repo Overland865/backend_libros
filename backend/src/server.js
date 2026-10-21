@@ -7,6 +7,8 @@ require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const { connectDB, getCollection, estadoConexion, iniciarKeepalive, cerrar } = require('./db');
 const { transcribirConGemini } = require('./gemini');
 const { adaptarLibro } = require('./libro_adapter');
+const { construirFiltroBusqueda, escaparRegex } = require('./libro_search');
+const { detectarCamposImagen } = require('./libro_validation');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -25,11 +27,6 @@ app.use(
 );
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
-/** Escapa metacaracteres de RegExp para que el usuario pueda buscar literalmente. */
-function escaparRegex(texto) {
-  return String(texto).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 /** Obtiene lista de claves API válidas configuradas en el entorno. */
 function obtenerClavesConfiguradas() {
@@ -174,25 +171,9 @@ app.post('/api/transcribir', verificarAutenticacion, async (req, res) => {
 app.get('/api/libros', verificarAutenticacion, async (req, res) => {
   try {
     const collection = await getCollection();
-    const { busqueda, iglesia, autor, limit = 50, skip = 0 } = req.query;
+    const { busqueda, campo, iglesia, autor, limit = 50, skip = 0 } = req.query;
 
-    let query = {};
-    if (busqueda) {
-      const rx = new RegExp(escaparRegex(busqueda), 'i');
-      query.$or = [
-        { titulo: rx },
-        { autor: rx },
-        { iglesia: rx },
-        { isbn_o_codigo: rx },
-        { isbn: rx },
-        { subtitulo: rx },
-        { editorial: rx },
-        { categorias: rx },
-        { sinopsis: rx },
-        { tipo_libro: rx },
-        { palabras_clave: rx }
-      ];
-    }
+    const query = construirFiltroBusqueda(busqueda, campo);
     if (iglesia) query.iglesia = { $regex: escaparRegex(iglesia), $options: 'i' };
     if (autor) query.autor = { $regex: escaparRegex(autor), $options: 'i' };
 
@@ -253,8 +234,17 @@ app.get('/api/libros/:id', verificarAutenticacion, async (req, res) => {
 // POST /api/libros - Guardar o actualizar libro con upsert=true
 app.post('/api/libros', verificarAutenticacion, async (req, res) => {
   try {
-    const collection = await getCollection();
     const libroData = { ...(req.body || {}) };
+    const camposImagen = detectarCamposImagen(libroData);
+    if (camposImagen.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No se guardan imágenes. Envía únicamente el texto transcrito.',
+        campos: camposImagen,
+      });
+    }
+
+    const collection = await getCollection();
 
     if (!libroData._id && !libroData.isbn_o_codigo && !libroData.titulo) {
       return res.status(400).json({

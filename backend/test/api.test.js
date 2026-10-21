@@ -2,6 +2,9 @@ const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert');
 const http = require('node:http');
 const { adaptarLibro } = require('../src/libro_adapter');
+const { construirFiltroBusqueda } = require('../src/libro_search');
+const { detectarCamposImagen } = require('../src/libro_validation');
+const { PROMPT_PALEOGRAFICO } = require('../src/gemini');
 
 // Configuramos variables de entorno para pruebas antes de cargar el servidor
 process.env.PORT = '0'; // Puerto efímero aleatorio
@@ -55,6 +58,51 @@ describe('Adaptación de libros de biblioteca_digital.libros', () => {
     assert.deepStrictEqual(libro.periodo, { anio_inicio: 1800, anio_fin: 1810 });
     assert.deepStrictEqual(libro.palabras_clave, ['bautismo']);
   });
+});
+
+describe('Búsqueda específica de libros', () => {
+  test('restringe la búsqueda al campo seleccionado', () => {
+    const filtro = construirFiltroBusqueda('San Miguel', 'iglesia');
+    assert.deepStrictEqual(Object.keys(filtro), ['$or']);
+    assert.strictEqual(filtro.$or.length, 1);
+    assert.ok(filtro.$or[0].iglesia instanceof RegExp);
+    assert.strictEqual(filtro.$or[0].iglesia.source, 'San Miguel');
+    assert.strictEqual(filtro.$or[0].iglesia.flags, 'i');
+  });
+
+  test('busca un año exacto en los campos de periodo compatibles', () => {
+    const filtro = construirFiltroBusqueda('1924', 'anio');
+    assert.deepStrictEqual(filtro.$or, [
+      { 'periodo.anio_inicio': 1924 },
+      { 'periodo.anio_fin': 1924 },
+      { anio_publicacion: 1924 },
+    ]);
+  });
+
+  test('escapa metacaracteres en las búsquedas de texto', () => {
+    const filtro = construirFiltroBusqueda('libro.*', 'titulo');
+    assert.strictEqual(filtro.$or[0].titulo.source, 'libro\\.\\*');
+  });
+});
+
+test('el prompt conserva explícitamente ñ, tildes y ortografía histórica', () => {
+  assert.match(PROMPT_PALEOGRAFICO, /ñ y Ñ/);
+  assert.match(PROMPT_PALEOGRAFICO, /No modernices la ortografía histórica/);
+});
+
+test('el guardado de libros detecta campos de imagen', () => {
+  assert.deepStrictEqual(
+    detectarCamposImagen({
+      paginas: [{ texto: 'Transcripción', imagen_base64: 'no-persistir' }],
+    }),
+    ['$.paginas[0].imagen_base64'],
+  );
+  assert.deepStrictEqual(
+    detectarCamposImagen({
+      paginas: [{ texto: 'El niño recibió la comunión.' }],
+    }),
+    [],
+  );
 });
 
 describe('API Backend - Tests Automatizados', () => {
