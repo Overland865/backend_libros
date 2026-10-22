@@ -4,7 +4,13 @@ const path = require('path');
 const { timingSafeEqual } = require('node:crypto');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
-const { connectDB, getCollection, estadoConexion, iniciarKeepalive, cerrar } = require('./db');
+const {
+  connectDB,
+  getCollection,
+  estadoConexion,
+  iniciarKeepalive,
+  cerrar
+} = require('./db');
 const { transcribirConGemini } = require('./gemini');
 const { adaptarLibro } = require('./libro_adapter');
 const { construirFiltroBusqueda, escaparRegex } = require('./libro_search');
@@ -28,64 +34,46 @@ app.use(
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-/** Obtiene lista de claves API válidas configuradas en el entorno. */
-function obtenerClavesConfiguradas() {
-  const claves = [];
-  if (process.env.API_KEY && process.env.API_KEY.trim()) {
-    claves.push(process.env.API_KEY.trim());
-  }
-  if (process.env.API_KEYS) {
-    claves.push(
-      ...process.env.API_KEYS.split(',').map((k) => k.trim()).filter(Boolean)
-    );
-  }
-  return claves;
+function obtenerCredencialesBackend() {
+  const username = (process.env.APP_USERNAME || '').trim();
+  const password = process.env.APP_PASSWORD || '';
+  return username && password && !username.includes(':')
+    ? { username, password }
+    : null;
 }
 
-let avisoAuthEmitido = false;
-
-function coincideClave(token, clave) {
-  const tokenBuffer = Buffer.from(token);
-  const claveBuffer = Buffer.from(clave);
-  return tokenBuffer.length === claveBuffer.length && timingSafeEqual(tokenBuffer, claveBuffer);
+function coincideTexto(a, b) {
+  const bufferA = Buffer.from(a);
+  const bufferB = Buffer.from(b);
+  return bufferA.length === bufferB.length && timingSafeEqual(bufferA, bufferB);
 }
 
-/**
- * Middleware de autenticacion por API key.
- * Acepta X-API-Key o Authorization: Bearer <clave>.
- */
 function verificarAutenticacion(req, res, next) {
-  const clavesValidas = obtenerClavesConfiguradas();
-
-  if (clavesValidas.length === 0) {
-    if (process.env.NODE_ENV === 'production') {
-      console.error('❌ SEGURIDAD: API_KEY no configurada en producción. Bloqueando petición.');
-      return res.status(500).json({
-        success: false,
-        error: 'Error de configuración: se debe definir API_KEY en el servidor de producción.'
-      });
-    }
-    if (!avisoAuthEmitido) {
-      console.warn('⚠️ ADVERTENCIA: No se configuró API_KEY. Peticiones permitidas sin auth en desarrollo.');
-      avisoAuthEmitido = true;
-    }
-    return next();
-  }
-
-  const headerKey = req.headers['x-api-key'];
-  const authHeader = req.headers.authorization || '';
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  const bearerKey = bearerMatch ? bearerMatch[1].trim() : null;
-
-  const token = (headerKey ? String(headerKey).trim() : bearerKey) || '';
-
-  if (!token || !clavesValidas.some((clave) => coincideClave(token, clave))) {
-    return res.status(401).json({
+  const expected = obtenerCredencialesBackend();
+  if (!expected) {
+    return res.status(503).json({
       success: false,
-      error: 'No autorizado. Proporcione una clave API valida en X-API-Key o Authorization: Bearer <API_KEY>.'
+      error: 'Autenticación no configurada. Define APP_USERNAME y APP_PASSWORD en el servidor.'
     });
   }
-
+  const basicMatch = (req.headers.authorization || '').match(
+    /^Basic\s+([A-Za-z0-9+/]+={0,2})$/i
+  );
+  const decoded = basicMatch
+    ? Buffer.from(basicMatch[1], 'base64').toString('utf8')
+    : '';
+  const separator = decoded.indexOf(':');
+  const username = separator >= 0 ? decoded.slice(0, separator) : '';
+  const password = separator >= 0 ? decoded.slice(separator + 1) : '';
+  if (
+    !coincideTexto(username, expected.username) ||
+    !coincideTexto(password, expected.password)
+  ) {
+    return res.status(401).json({
+      success: false,
+      error: 'Usuario o contraseña incorrectos.'
+    });
+  }
   next();
 }
 
@@ -97,11 +85,12 @@ app.get('/', (req, res) => {
     endpoints: {
       liveness_hosting: 'GET /healthz',
       readiness_atlas: 'GET /api/salud',
-      listar_libros: 'GET /api/libros (requiere autenticación)',
-      obtener_libro: 'GET /api/libros/:id (requiere autenticación)',
-      guardar_o_actualizar: 'POST /api/libros (requiere autenticación)',
-      eliminar_libro: 'DELETE /api/libros/:id (requiere autenticación)',
-      transcribir_imagen: 'POST /api/transcribir (requiere autenticación)'
+      validar_credenciales: 'GET /api/auth/check (Basic Auth, no crea sesión)',
+      listar_libros: 'GET /api/libros (requiere Basic Auth)',
+      obtener_libro: 'GET /api/libros/:id (requiere Basic Auth)',
+      guardar_o_actualizar: 'POST /api/libros (requiere Basic Auth)',
+      eliminar_libro: 'DELETE /api/libros/:id (requiere Basic Auth)',
+      transcribir_imagen: 'POST /api/transcribir (requiere Basic Auth)'
     }
   });
 });
@@ -135,6 +124,11 @@ app.get('/api/salud', async (req, res) => {
     servidor: 'ok',
     ...estado
   });
+});
+
+// La autenticación no crea ni conserva sesiones; se validan las credenciales por petición.
+app.get('/api/auth/check', verificarAutenticacion, (req, res) => {
+  res.json({ success: true, message: 'Credenciales válidas.' });
 });
 
 // POST /api/transcribir - Transcripción con IA ejecutada en el backend
@@ -171,10 +165,9 @@ app.post('/api/transcribir', verificarAutenticacion, async (req, res) => {
 app.get('/api/libros', verificarAutenticacion, async (req, res) => {
   try {
     const collection = await getCollection();
-    const { busqueda, campo, iglesia, autor, limit = 50, skip = 0 } = req.query;
+    const { busqueda, campo, autor, limit = 50, skip = 0 } = req.query;
 
     const query = construirFiltroBusqueda(busqueda, campo);
-    if (iglesia) query.iglesia = { $regex: escaparRegex(iglesia), $options: 'i' };
     if (autor) query.autor = { $regex: escaparRegex(autor), $options: 'i' };
 
     const skipNum = Math.max(0, Number(skip) || 0);
@@ -240,7 +233,7 @@ app.post('/api/libros', verificarAutenticacion, async (req, res) => {
       return res.status(400).json({
         success: false,
         error: 'No se guardan imágenes. Envía únicamente el texto transcrito.',
-        campos: camposImagen,
+        campos: camposImagen
       });
     }
 

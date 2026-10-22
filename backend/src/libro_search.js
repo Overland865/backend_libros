@@ -9,8 +9,8 @@ function construirFiltroBusqueda(busqueda, campo = 'todos') {
   const rx = new RegExp(escaparRegex(texto), 'i');
   const campos = {
     titulo: [{ titulo: rx }],
-    iglesia: [{ iglesia: rx }],
     autor: [{ autor: rx }],
+    editorial: [{ editorial: rx }],
     tipo_libro: [{ tipo_libro: rx }],
     isbn_o_codigo: [{ isbn_o_codigo: rx }, { isbn: rx }],
     anio: /^\d{1,4}$/.test(texto)
@@ -26,7 +26,6 @@ function construirFiltroBusqueda(busqueda, campo = 'todos') {
     $or: campos[campo] ?? [
       { titulo: rx },
       { autor: rx },
-      { iglesia: rx },
       { isbn_o_codigo: rx },
       { isbn: rx },
       { subtitulo: rx },

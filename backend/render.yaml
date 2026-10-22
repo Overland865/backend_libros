@@ -16,8 +16,10 @@ services:
         value: libros
       - key: MONGO_URI
         sync: false
-      - key: API_KEY
-        generateValue: true
+      - key: APP_USERNAME
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL

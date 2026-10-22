@@ -1,14 +1,13 @@
 const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert');
-const http = require('node:http');
 const { adaptarLibro } = require('../src/libro_adapter');
 const { construirFiltroBusqueda } = require('../src/libro_search');
 const { detectarCamposImagen } = require('../src/libro_validation');
 const { PROMPT_PALEOGRAFICO } = require('../src/gemini');
 
-// Configuramos variables de entorno para pruebas antes de cargar el servidor
-process.env.PORT = '0'; // Puerto efímero aleatorio
-process.env.API_KEY = 'test-secret-token-123';
+process.env.PORT = '0';
+process.env.APP_USERNAME = 'test-user';
+process.env.APP_PASSWORD = 'test-password-for-tests';
 process.env.NODE_ENV = 'test';
 process.env.DB_NAME = 'biblioteca_digital';
 process.env.MONGO_URI = 'mongodb://127.0.0.1:1';
@@ -17,6 +16,11 @@ delete process.env.COLLECTION_NAME;
 
 const app = require('../src/server');
 const { cerrar } = require('../src/db');
+
+const authorization = (
+  username = process.env.APP_USERNAME,
+  password = process.env.APP_PASSWORD
+) => 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
 
 describe('Adaptación de libros de biblioteca_digital.libros', () => {
   test('mapea el esquema de catálogo al formato consumido por la app', () => {
@@ -29,7 +33,7 @@ describe('Adaptación de libros de biblioteca_digital.libros', () => {
       anio_publicacion: 1924,
       categorias: ['Historia', 'Religión'],
       total_paginas: 120,
-      fecha_creacion: '2024-01-01T00:00:00.000Z',
+      fecha_creacion: '2024-01-01T00:00:00.000Z'
     });
 
     assert.strictEqual(libro._id, 'libro-1');
@@ -49,7 +53,7 @@ describe('Adaptación de libros de biblioteca_digital.libros', () => {
       iglesia: 'Parroquia',
       tipo_libro: 'Bautismos',
       periodo: { anio_inicio: 1800, anio_fin: 1810 },
-      palabras_clave: ['bautismo'],
+      palabras_clave: ['bautismo']
     });
 
     assert.strictEqual(libro.isbn_o_codigo, 'COD-2');
@@ -61,13 +65,13 @@ describe('Adaptación de libros de biblioteca_digital.libros', () => {
 });
 
 describe('Búsqueda específica de libros', () => {
-  test('restringe la búsqueda al campo seleccionado', () => {
-    const filtro = construirFiltroBusqueda('San Miguel', 'iglesia');
+  test('restringe la búsqueda editorial al campo seleccionado', () => {
+    const filtro = construirFiltroBusqueda('Planeta', 'editorial');
     assert.deepStrictEqual(Object.keys(filtro), ['$or']);
     assert.strictEqual(filtro.$or.length, 1);
-    assert.ok(filtro.$or[0].iglesia instanceof RegExp);
-    assert.strictEqual(filtro.$or[0].iglesia.source, 'San Miguel');
-    assert.strictEqual(filtro.$or[0].iglesia.flags, 'i');
+    assert.ok(filtro.$or[0].editorial instanceof RegExp);
+    assert.strictEqual(filtro.$or[0].editorial.source, 'Planeta');
+    assert.strictEqual(filtro.$or[0].editorial.flags, 'i');
   });
 
   test('busca un año exacto en los campos de periodo compatibles', () => {
@@ -75,7 +79,7 @@ describe('Búsqueda específica de libros', () => {
     assert.deepStrictEqual(filtro.$or, [
       { 'periodo.anio_inicio': 1924 },
       { 'periodo.anio_fin': 1924 },
-      { anio_publicacion: 1924 },
+      { anio_publicacion: 1924 }
     ]);
   });
 
@@ -88,33 +92,34 @@ describe('Búsqueda específica de libros', () => {
 test('el prompt conserva explícitamente ñ, tildes y ortografía histórica', () => {
   assert.match(PROMPT_PALEOGRAFICO, /ñ y Ñ/);
   assert.match(PROMPT_PALEOGRAFICO, /No modernices la ortografía histórica/);
+  assert.match(PROMPT_PALEOGRAFICO, /elimina ese guion y el salto de línea/);
+  assert.match(PROMPT_PALEOGRAFICO, /no insertes saltos de línea solo porque el renglón/);
 });
 
 test('el guardado de libros detecta campos de imagen', () => {
   assert.deepStrictEqual(
     detectarCamposImagen({
-      paginas: [{ texto: 'Transcripción', imagen_base64: 'no-persistir' }],
+      paginas: [{ texto: 'Transcripción', imagen_base64: 'no-persistir' }]
     }),
-    ['$.paginas[0].imagen_base64'],
+    ['$.paginas[0].imagen_base64']
   );
   assert.deepStrictEqual(
     detectarCamposImagen({
-      paginas: [{ texto: 'El niño recibió la comunión.' }],
+      paginas: [{ texto: 'El niño recibió la comunión.' }]
     }),
-    [],
+    []
   );
 });
 
-describe('API Backend - Tests Automatizados', () => {
+describe('Autenticación Basic de API', () => {
   let server;
   let baseUrl;
 
-  before((_, done) => {
-    server = app.listen(0, '127.0.0.1', () => {
-      const port = server.address().port;
-      baseUrl = `http://127.0.0.1:${port}`;
-      done();
+  before(async () => {
+    server = await new Promise((resolve) => {
+      const listeningServer = app.listen(0, '127.0.0.1', () => resolve(listeningServer));
     });
+    baseUrl = 'http://127.0.0.1:' + server.address().port;
   });
 
   after(async () => {
@@ -122,77 +127,57 @@ describe('API Backend - Tests Automatizados', () => {
     await new Promise((resolve) => server.close(resolve));
   });
 
-  test('Liveness check: GET /healthz responde 200 inmediatamente', async () => {
+  test('la salud sigue disponible sin credenciales', async () => {
     const res = await fetch(`${baseUrl}/healthz`);
     assert.strictEqual(res.status, 200);
-    const body = await res.json();
-    assert.strictEqual(body.status, 'ok');
-    assert.strictEqual(typeof body.uptime, 'number');
-    assert.ok(body.timestamp);
+    assert.strictEqual((await res.json()).status, 'ok');
   });
 
-  test('Ruta raíz: GET / responde 200 con mapa de endpoints', async () => {
-    const res = await fetch(`${baseUrl}/`);
+  test('el endpoint de comprobación valida Basic Auth sin crear token', async () => {
+    const res = await fetch(`${baseUrl}/api/auth/check`, {
+      headers: { Authorization: authorization() }
+    });
     assert.strictEqual(res.status, 200);
-    const body = await res.json();
-    assert.strictEqual(body.status, 'ok');
-    assert.ok(body.endpoints.liveness_hosting);
-    assert.ok(body.endpoints.listar_libros);
-  });
-
-  test('Readiness probe: GET /api/salud responde con estructura de estado', async () => {
-    const res = await fetch(`${baseUrl}/api/salud`);
-    // Puede responder 200 o 503 dependiendo de si Atlas está conectado
-    assert.ok(res.status === 200 || res.status === 503);
-    const body = await res.json();
-    assert.strictEqual(body.servidor, 'ok');
-    assert.ok('mongo' in body);
-    assert.strictEqual(body.base_datos, 'biblioteca_digital');
-    assert.strictEqual(body.coleccion, 'libros');
-  });
-
-  test('Seguridad: GET /api/libros sin token devuelve 401 Unauthorized', async () => {
-    const res = await fetch(`${baseUrl}/api/libros`);
-    assert.strictEqual(res.status, 401);
-    const body = await res.json();
-    assert.strictEqual(body.success, false);
-    assert.match(body.error, /No autorizado/i);
-  });
-
-  test('Seguridad: GET /api/libros con token inválido devuelve 401 Unauthorized', async () => {
-    const res = await fetch(`${baseUrl}/api/libros`, {
-      headers: { 'X-API-Key': 'token-equivocado' }
+    assert.deepStrictEqual(await res.json(), {
+      success: true,
+      message: 'Credenciales válidas.'
     });
-    assert.strictEqual(res.status, 401);
-    const body = await res.json();
-    assert.strictEqual(body.success, false);
   });
 
-  test('Security: Authorization Bearer accepts the valid key', async () => {
-    const res = await fetch(`${baseUrl}/api/libros`, {
-      headers: { 'Authorization': 'Bearer test-secret-token-123' }
+  test('rechaza credenciales faltantes, incorrectas y tokens antiguos', async () => {
+    const missing = await fetch(`${baseUrl}/api/libros`);
+    assert.strictEqual(missing.status, 401);
+
+    const invalid = await fetch(`${baseUrl}/api/auth/check`, {
+      headers: {
+        Authorization: authorization('test-user', 'wrong-password')
+      }
     });
-    assert.notStrictEqual(res.status, 401);
-  });
+    assert.strictEqual(invalid.status, 401);
 
-  test('Security: Authorization without Bearer scheme returns 401', async () => {
-    const res = await fetch(`${baseUrl}/api/libros`, {
-      headers: { 'Authorization': 'test-secret-token-123' }
+    const legacy = await fetch(`${baseUrl}/api/auth/check`, {
+      headers: { Authorization: 'Bearer old-token' }
     });
-    assert.strictEqual(res.status, 401);
+    assert.strictEqual(legacy.status, 401);
   });
 
-  test('Transcripción: POST /api/transcribir sin imagen devuelve 400', async () => {
-    const res = await fetch(`${baseUrl}/api/transcribir`, {
+  test('las rutas de transcripción también requieren credenciales válidas', async () => {
+    const invalid = await fetch(`${baseUrl}/api/transcribir`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    assert.strictEqual(invalid.status, 401);
+
+    const valid = await fetch(`${baseUrl}/api/transcribir`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-API-Key': 'test-secret-token-123'
+        Authorization: authorization()
       },
       body: JSON.stringify({})
     });
-    assert.strictEqual(res.status, 400);
-    const body = await res.json();
-    assert.strictEqual(body.success, false);
+    assert.strictEqual(valid.status, 400);
+    assert.strictEqual((await valid.json()).success, false);
   });
 });

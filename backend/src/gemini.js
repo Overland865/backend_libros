@@ -5,10 +5,11 @@ Reglas obligatorias:
 1. Transcribe nombres propios, apellidos, fechas, lugares, parentescos y fórmulas religiosas exactamente como aparecen.
 2. Respeta las abreviaturas y ortografía histórica de la época.
 3. Conserva fielmente tildes, diéresis, signos de puntuación y caracteres del español, en especial ñ y Ñ; no los sustituyas por n o N.
-4. Conserva la división natural de párrafos y líneas.
-5. Si hay partes ilegibles o manchadas, indícalas como [ilegible].
-6. No modernices la ortografía histórica ni corrijas nombres por contexto.
-7. Devuelve ÚNICAMENTE el texto limpio transcrito. NO agregues introducciones, explicaciones, saludos ni bloques de código.`;
+4. Escribe el texto de forma continua: no insertes saltos de línea solo porque el renglón de la página termina. Conserva los cambios reales de párrafo.
+5. Si una palabra está dividida al final de un renglón con un guion de corte y continúa al inicio del siguiente, elimina ese guion y el salto de línea, y une ambas partes sin espacio. Conserva los guiones que formen parte real de una palabra o expresión.
+6. Si hay partes ilegibles o manchadas, indícalas como [ilegible].
+7. No modernices la ortografía histórica ni corrijas nombres por contexto.
+8. Devuelve ÚNICAMENTE el texto limpio transcrito. NO agregues introducciones, explicaciones, saludos ni bloques de código.`;
 
 const MODELOS_DEFAULT = [
   'gemini-2.5-flash',
