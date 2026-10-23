@@ -255,6 +255,22 @@ app.post('/api/libros', verificarAutenticacion, async (req, res) => {
       ? { _id: idNormalizado }
       : { isbn_o_codigo: libroData.isbn_o_codigo || libroData.titulo };
 
+    // El validador de la colección en Atlas exige: titulo, autor, isbn,
+    // editorial, categorias, idioma y fecha_actualizacion. Se completan
+    // a partir de los campos que ya envía la app.
+    if (resto.isbn == null) {
+      resto.isbn = String(resto.isbn_o_codigo || idNormalizado || resto.titulo || '');
+    }
+    if (resto.editorial == null) resto.editorial = '';
+    if (resto.autor == null) resto.autor = '';
+    if (!Array.isArray(resto.categorias) || resto.categorias.length === 0) {
+      resto.categorias = [String(resto.tipo_libro || 'General')];
+    }
+    if (!resto.idioma) resto.idioma = 'es';
+    if (!resto.fecha_actualizacion) {
+      resto.fecha_actualizacion = new Date().toISOString();
+    }
+
     if (!resto.fecha_procesamiento) {
       resto.fecha_procesamiento = new Date().toISOString();
     }
