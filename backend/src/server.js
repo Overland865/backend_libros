@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const { timingSafeEqual } = require('node:crypto');
+const { ObjectId } = require('mongodb');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const {
@@ -199,15 +200,29 @@ app.get('/api/libros', verificarAutenticacion, async (req, res) => {
   }
 });
 
-// GET /api/libros/:id - Detalle completo por _id o isbn_o_codigo
+function construirFiltroLibroPorId(id) {
+  const strId = String(id ?? '').trim();
+  const condiciones = [
+    { _id: strId },
+    { isbn_o_codigo: strId },
+    { isbn: strId },
+    { titulo: strId }
+  ];
+  if (ObjectId.isValid(strId)) {
+    try {
+      condiciones.unshift({ _id: new ObjectId(strId) });
+    } catch (_) {}
+  }
+  return { $or: condiciones };
+}
+
+// GET /api/libros/:id - Detalle completo por _id, isbn_o_codigo o titulo
 app.get('/api/libros/:id', verificarAutenticacion, async (req, res) => {
   try {
     const collection = await getCollection();
     const id = String(req.params.id);
 
-    const libro = await collection.findOne({
-      $or: [{ _id: id }, { isbn_o_codigo: id }, { isbn: id }]
-    });
+    const libro = await collection.findOne(construirFiltroLibroPorId(id));
 
     if (!libro) {
       return res.status(404).json({ success: false, message: 'Libro no encontrado' });
@@ -245,11 +260,20 @@ app.post('/api/libros', verificarAutenticacion, async (req, res) => {
     // `_id` es inmutable en MongoDB: nunca puede viajar dentro de $set.
     // Se separa para usarlo como filtro y como $setOnInsert.
     const { _id, ...resto } = libroData;
-    const idNormalizado = _id != null ? String(_id) : null;
+    const idNormalizado = _id != null ? String(_id).trim() : null;
 
-    const filter = idNormalizado
-      ? { _id: idNormalizado }
-      : { isbn_o_codigo: libroData.isbn_o_codigo || libroData.titulo };
+    let filter;
+    if (idNormalizado) {
+      if (ObjectId.isValid(idNormalizado)) {
+        const objId = new ObjectId(idNormalizado);
+        const existeObj = await collection.findOne({ _id: objId }, { projection: { _id: 1 } });
+        filter = existeObj ? { _id: objId } : { _id: idNormalizado };
+      } else {
+        filter = { _id: idNormalizado };
+      }
+    } else {
+      filter = { isbn_o_codigo: libroData.isbn_o_codigo || libroData.titulo };
+    }
 
     // El validador de la colección en Atlas exige: titulo, autor, isbn,
     // editorial, categorias, idioma y fecha_actualizacion. Se completan
@@ -305,9 +329,7 @@ app.delete('/api/libros/:id', verificarAutenticacion, async (req, res) => {
     const collection = await getCollection();
     const id = String(req.params.id);
 
-    const result = await collection.deleteOne({
-      $or: [{ _id: id }, { isbn_o_codigo: id }, { isbn: id }]
-    });
+    const result = await collection.deleteOne(construirFiltroLibroPorId(id));
 
     if (result.deletedCount === 0) {
       return res.status(404).json({ success: false, message: 'Libro no encontrado para eliminar' });
