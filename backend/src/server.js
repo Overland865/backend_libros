@@ -177,13 +177,8 @@ app.get('/api/libros', verificarAutenticacion, async (req, res) => {
     const total = await collection.countDocuments(query);
     const libros = await collection
       .find(query)
-      .project({ paginas: 0 }) // Excluir páginas para listado ligero
-      .sort({
-        fecha_procesamiento: -1,
-        fecha_actualizacion: -1,
-        fecha_creacion: -1,
-        _id: 1,
-      })
+      .project({ paginas: 0, fullText: 0, contenido: 0, texto_completo: 0 }) // Excluir páginas y textos masivos para listado ligero
+      .sort({ _id: -1 }) // Orden cronológico inverso usando el índice nativo de _id
       .skip(skipNum)
       .limit(limitNum)
       .toArray();
