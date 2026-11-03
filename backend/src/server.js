@@ -134,7 +134,7 @@ app.get('/api/auth/check', verificarAutenticacion, (req, res) => {
 // POST /api/transcribir - Transcripción con IA ejecutada en el backend
 app.post('/api/transcribir', verificarAutenticacion, async (req, res) => {
   try {
-    const { imagen, mimeType = 'image/jpeg' } = req.body || {};
+    const { imagen, mimeType = 'image/jpeg', apiKey } = req.body || {};
     if (!imagen) {
       return res.status(400).json({
         success: false,
@@ -144,7 +144,8 @@ app.post('/api/transcribir', verificarAutenticacion, async (req, res) => {
 
     const resultado = await transcribirConGemini({
       imagenBase64: imagen,
-      mimeType
+      mimeType,
+      apiKey
     });
 
     res.json({

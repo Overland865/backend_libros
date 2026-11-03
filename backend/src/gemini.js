@@ -12,18 +12,19 @@ Reglas obligatorias:
 8. Devuelve ÚNICAMENTE el texto limpio transcrito. NO agregues introducciones, explicaciones, saludos ni bloques de código.`;
 
 const MODELOS_DEFAULT = [
-  'gemini-2.5-flash',
-  'gemini-flash-latest',
-  'gemini-1.5-flash',
-  'gemini-flash-lite-latest'
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.6-flash',
+  'gemini-3.8-flash',
+  'gemini-flash-latest'
 ];
 
 /**
  * Transcribe una imagen en base64 usando la API de Gemini desde el backend.
  * Esto protege la clave GEMINI_API_KEY para que nunca viaje dentro del APK móvil.
  */
-async function transcribirConGemini({ imagenBase64, mimeType = 'image/jpeg' }) {
-  const apiKey = (process.env.GEMINI_API_KEY || '').trim();
+async function transcribirConGemini({ imagenBase64, mimeType = 'image/jpeg', apiKey: customKey }) {
+  const apiKey = (customKey || process.env.GEMINI_API_KEY || '').trim();
   if (!apiKey) {
     const error = new Error('GEMINI_API_KEY no está configurada en las variables de entorno del servidor.');
     error.status = 503;
@@ -68,7 +69,7 @@ async function transcribirConGemini({ imagenBase64, mimeType = 'image/jpeg' }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(120000)
+        signal: AbortSignal.timeout(35000)
       });
 
       if (res.ok) {
@@ -91,9 +92,9 @@ async function transcribirConGemini({ imagenBase64, mimeType = 'image/jpeg' }) {
         msg = parsed.error?.message || resBody;
       } catch (_) {}
 
-      if (res.status === 404) {
-        console.warn(`⚠️ Modelo de Gemini "${modelo}" no encontrado (404). Probando alternativa...`);
-        ultimoError = new Error(`Modelo "${modelo}" no disponible: ${msg}`);
+      if (res.status === 404 || res.status === 503 || res.status === 429 || res.status >= 500) {
+        console.warn(`⚠️ Modelo "${modelo}" no disponible (${res.status}: ${msg}). Probando alternativa...`);
+        ultimoError = new Error(`Modelo "${modelo}" no disponible (${res.status}): ${msg}`);
         continue;
       }
 
@@ -102,11 +103,16 @@ async function transcribirConGemini({ imagenBase64, mimeType = 'image/jpeg' }) {
       throw err;
     } catch (e) {
       if (e.name === 'TimeoutError') {
-        const err = new Error('Tiempo de espera agotado al transcribir con Gemini.');
-        err.status = 504;
-        throw err;
+        console.warn(`⚠️ Tiempo de espera agotado en modelo "${modelo}". Probando alternativa...`);
+        ultimoError = e;
+        continue;
       }
-      if (e.status && e.status !== 404) {
+      if (e.status && (e.status === 404 || e.status === 503 || e.status === 429 || e.status >= 500)) {
+        console.warn(`⚠️ Error ${e.status} en modelo "${modelo}". Probando alternativa...`);
+        ultimoError = e;
+        continue;
+      }
+      if (e.status && e.status < 500) {
         throw e;
       }
       ultimoError = e;
