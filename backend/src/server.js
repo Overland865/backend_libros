@@ -248,6 +248,43 @@ app.post('/api/libros', verificarAutenticacion, async (req, res) => {
       });
     }
 
+    // Normalizar campos redundantes en inglés (evita duplicar title, synopsis, author, etc.)
+    if (libroData.title && !libroData.titulo) libroData.titulo = String(libroData.title).trim();
+    delete libroData.title;
+
+    if (libroData.author && !libroData.autor) {
+      libroData.autor = typeof libroData.author === 'string'
+        ? libroData.author.trim()
+        : String(libroData.author.name || '').trim();
+    }
+    delete libroData.author;
+
+    if (libroData.synopsis && !libroData.sinopsis) libroData.sinopsis = String(libroData.synopsis).trim();
+    delete libroData.synopsis;
+
+    if (libroData.publisher && !libroData.editorial) libroData.editorial = String(libroData.publisher).trim();
+    delete libroData.publisher;
+
+    if (libroData.publishedYear && !libroData.anio_publicacion) {
+      const year = Number(libroData.publishedYear);
+      if (!Number.isNaN(year)) libroData.anio_publicacion = year;
+    }
+    delete libroData.publishedYear;
+
+    if (Array.isArray(libroData.genres) && (!Array.isArray(libroData.categorias) || libroData.categorias.length === 0)) {
+      libroData.categorias = libroData.genres;
+    }
+    delete libroData.genres;
+
+    if (libroData.coverUrl && !libroData.portada_url) libroData.portada_url = String(libroData.coverUrl).trim();
+    delete libroData.coverUrl;
+
+    if (libroData.pageCount != null && libroData.total_paginas == null) {
+      const pc = Number(libroData.pageCount);
+      if (!Number.isNaN(pc)) libroData.total_paginas = pc;
+    }
+    delete libroData.pageCount;
+
     const collection = await getCollection();
 
     if (!libroData._id && !libroData.isbn_o_codigo && !libroData.titulo) {
